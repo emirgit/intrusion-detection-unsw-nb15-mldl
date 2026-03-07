@@ -1,6 +1,8 @@
 # Project related files and folders
 dataset/
 .idea/
+docs/project-requirements.md
+ref/
 
 
 # Byte-compiled / optimized / DLL files
