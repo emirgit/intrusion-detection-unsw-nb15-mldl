@@ -1,0 +1,3 @@
+
+# required to download UNSW-NB15 dataset
+kaggle
