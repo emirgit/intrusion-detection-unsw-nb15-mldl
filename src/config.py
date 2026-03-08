@@ -10,7 +10,7 @@ DATA_RAW = BASE_DIR / "data" / "raw"
 DATA_PROCESSED = BASE_DIR / "data" / "processed"
 DATASET_DIR = BASE_DIR / "dataset" / "unsw-nb15-dataset"
 
-TESTING_SET_PATH = DATA_RAW / "testing-set.parquet"
+TESTING_SET_PATH = DATA_RAW / "UNSW_NB15_testing-set.parquet"
 X_TEST_PATH = DATA_PROCESSED / "X_test.csv"
 Y_TEST_PATH = DATA_PROCESSED / "y_test.csv"
 

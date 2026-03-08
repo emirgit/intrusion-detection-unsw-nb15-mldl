@@ -279,54 +279,47 @@ def render():
         unsafe_allow_html=True,
     )
 
-    # ── dataset source + evaluation trigger (shared across tabs) ──────────────
-    st.markdown(
-        '<div class="glass-card">'
-        '<span style="font-weight:700;color:#f8fafc;">Dataset &amp; Evaluation</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    with st.sidebar:
+        # ── dataset source + evaluation trigger ───────────────────────────────────
+        st.markdown("### Dataset & Evaluation")
 
-    source = st.radio(
-        "Dataset source",
-        ["Built-in test set", "Upload CSV / Parquet"],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-    features, labels = None, None
-    dataset_name = "UNSW-NB15 built-in test split"
-
-    if source == "Built-in test set":
-        features, labels = load_builtin_test()
-    else:
-        uploaded = st.file_uploader(
-            "Upload dataset (must contain a `label` column)",
-            type=["csv", "parquet"],
+        source = st.selectbox(
+            "Dataset Source",
+            ["Built-in test set", "Upload CSV / Parquet"],
+            label_visibility="collapsed",
         )
-        if uploaded is not None:
-            try:
-                if uploaded.name.lower().endswith(".parquet"):
-                    custom = pd.read_parquet(uploaded)
-                else:
-                    custom = pd.read_csv(uploaded)
-                if "label" not in custom.columns:
-                    st.error("Uploaded file must contain a `label` column.")
-                else:
-                    processor = PacketProcessor()
-                    labels = custom["label"].values
-                    features = processor.transform(custom)
-                    dataset_name = uploaded.name
-                    st.success(f"Loaded {len(custom):,} rows from {uploaded.name}.")
-            except Exception as exc:
-                st.error(f"Failed to load: {exc}")
 
-    if features is not None and labels is not None:
-        total_rows = len(labels)
-        step, default_val = _progressive_step(total_rows)
+        features, labels = None, None
+        dataset_name = "UNSW-NB15 built-in test split"
 
-        col_size, col_btn = st.columns([3, 1])
-        with col_size:
+        if source == "Built-in test set":
+            features, labels = load_builtin_test()
+        else:
+            uploaded = st.file_uploader(
+                "Upload dataset (must contain a `label` column)",
+                type=["csv", "parquet"],
+            )
+            if uploaded is not None:
+                try:
+                    if uploaded.name.lower().endswith(".parquet"):
+                        custom = pd.read_parquet(uploaded)
+                    else:
+                        custom = pd.read_csv(uploaded)
+                    if "label" not in custom.columns:
+                        st.error("Uploaded file must contain a `label` column.")
+                    else:
+                        processor = PacketProcessor()
+                        labels = custom["label"].values
+                        features = processor.transform(custom)
+                        dataset_name = uploaded.name
+                        st.success(f"Loaded {len(custom):,} rows from {uploaded.name}.")
+                except Exception as exc:
+                    st.error(f"Failed to load: {exc}")
+
+        if features is not None and labels is not None:
+            total_rows = len(labels)
+            step, default_val = _progressive_step(total_rows)
+
             sample_size = st.slider(
                 "Sample size",
                 min_value=step,
@@ -334,16 +327,14 @@ def render():
                 value=default_val,
                 step=step,
             )
-        with col_btn:
+            
             run_eval = st.button("Run Evaluation", use_container_width=True)
 
-        if run_eval:
-            with st.spinner(f"Evaluating on {sample_size:,} rows from {dataset_name}..."):
-                results = _run_evaluation(wrapper, features, labels, sample_size)
-                results["dataset_name"] = dataset_name
-                st.session_state.bench_results = results
-
-    st.markdown("---")
+            if run_eval:
+                with st.spinner(f"Evaluating on {sample_size:,} rows from {dataset_name}..."):
+                    results = _run_evaluation(wrapper, features, labels, sample_size)
+                    results["dataset_name"] = dataset_name
+                    st.session_state.bench_results = results
 
     # ── Sub-tabs: Metrics | Comparison ────────────────────────────────────────
     tab_metrics, tab_comparison = st.tabs(["Metrics", "Comparison"])
