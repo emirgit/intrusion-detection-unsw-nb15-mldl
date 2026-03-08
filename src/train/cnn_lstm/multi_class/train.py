@@ -40,10 +40,12 @@ def main():
         X_train, y_train, X_test, y_test
     )
 
+    class_weights = loader.compute_class_weights(y_train)
     trainer = CNNLSTMMultiClassTrainer(
         n_features=loader.n_features,
         num_classes=loader.num_classes,
         class_names=loader.class_names,
+        class_weights=class_weights,
     )
     trainer.train(train_dl, val_dl)
     metrics = trainer.evaluate(test_dl)

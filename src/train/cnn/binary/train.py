@@ -39,7 +39,11 @@ def main():
         X_train, y_train, X_test, y_test
     )
 
-    trainer = CNNBinaryTrainer(n_features=loader.n_features)
+    class_weights = loader.compute_class_weights(y_train)
+    trainer = CNNBinaryTrainer(
+        n_features=loader.n_features,
+        class_weights=class_weights,
+    )
     trainer.train(train_dl, val_dl)
     metrics = trainer.evaluate(test_dl)
     trainer.save_model()
