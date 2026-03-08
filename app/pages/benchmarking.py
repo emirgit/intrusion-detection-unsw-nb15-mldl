@@ -9,9 +9,9 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from pathlib import Path
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 
-from src.config import X_TEST_PATH, Y_TEST_PATH
 from src.wrapper_engine import WrapperEngine
 from src.packet_processor import PacketProcessor
 
@@ -41,31 +41,44 @@ def _progressive_step(total: int) -> tuple[int, int]:
 
 @st.cache_data
 def load_builtin_test():
-    X = pd.read_csv(X_TEST_PATH)
-    y = pd.read_csv(Y_TEST_PATH).iloc[:, 0].values
-    return X, y
+    test_path = Path("dataset/unsw-nb15-dataset/training-and-testing-parquet/UNSW_NB15_testing-set.parquet")
+    if test_path.exists():
+        return pd.read_parquet(test_path)
+    return None
 
 
-def _run_evaluation(wrapper, features, labels, sample_size):
+def _run_evaluation(wrapper, df, sample_size):
     """Run evaluation across all models and return results dict."""
+    processor = PacketProcessor()
     rng = np.random.default_rng(42)
-    total_rows = len(labels)
+    total_rows = len(df)
     indices = np.sort(rng.choice(total_rows, size=min(sample_size, total_rows), replace=False))
+    
+    sampled_df = df.iloc[indices].copy()
+    labels = sampled_df["label"].values.astype(int)
 
     model_ids = wrapper.model_repo.get_available_models()
     acc = {m: {"tp": 0, "tn": 0, "fp": 0, "fn": 0, "probs": [], "preds": []}
            for m in model_ids}
 
+    # Pre-process for each model separately
+    model_features = {}
+    for mid in model_ids:
+        model_features[mid] = processor.transform(sampled_df, mid)
+
     progress = st.progress(0)
-    for i, idx in enumerate(indices):
-        row = features.iloc[idx:idx + 1]
-        true = int(labels[idx])
-        all_preds = wrapper.model_repo.predict_all(row)
-        for mid, res in all_preds.items():
+    for i in range(len(sampled_df)):
+        true = labels[i]
+        for mid in model_ids:
+            features = model_features[mid].iloc[i:i+1]
+            res = wrapper.model_repo.predict(mid, features)
+            
             pred = res["prediction"]
             prob = res["probability"]
+            
             acc[mid]["probs"].append(prob)
             acc[mid]["preds"].append(pred)
+            
             if true == 1 and pred == 1:
                 acc[mid]["tp"] += 1
             elif true == 0 and pred == 0:
@@ -74,8 +87,9 @@ def _run_evaluation(wrapper, features, labels, sample_size):
                 acc[mid]["fp"] += 1
             else:
                 acc[mid]["fn"] += 1
-        if (i + 1) % max(1, len(indices) // 20) == 0:
-            progress.progress((i + 1) / len(indices))
+                
+        if (i + 1) % max(1, len(sampled_df) // 20) == 0:
+            progress.progress((i + 1) / len(sampled_df))
     progress.progress(1.0)
 
     # ensemble (majority voting)
@@ -83,9 +97,8 @@ def _run_evaluation(wrapper, features, labels, sample_size):
     vote_sum = sum(all_pred_arrays.values())
     ensemble_preds = (vote_sum > len(model_ids) / 2).astype(int)
     ensemble_probs = np.mean([np.array(acc[m]["probs"]) for m in model_ids], axis=0)
-    sampled_labels = labels[indices]
 
-    cm_e = confusion_matrix(sampled_labels, ensemble_preds, labels=[0, 1])
+    cm_e = confusion_matrix(labels, ensemble_preds, labels=[0, 1])
     tn_e, fp_e, fn_e, tp_e = cm_e.ravel() if cm_e.size == 4 else (0, 0, 0, 0)
     acc["ensemble"] = {
         "tp": int(tp_e), "tn": int(tn_e), "fp": int(fp_e), "fn": int(fn_e),
@@ -119,8 +132,8 @@ def _run_evaluation(wrapper, features, labels, sample_size):
     return {
         "summary": summary_rows,
         "acc": acc,
-        "labels": sampled_labels,
-        "sample_size": len(indices),
+        "labels": labels,
+        "sample_size": len(sampled_df),
     }
 
 
@@ -132,20 +145,25 @@ def _render_metrics_tab(wrapper):
     if offline:
         rows = []
         for mid, m in offline.items():
+            if "accuracy" not in m:  # Placeholders
+                continue
             rows.append({
                 "Model": mid.replace("_", " ").title(),
                 "Accuracy": m.get("accuracy", 0),
-                "Precision": m.get("precision", 0),
-                "Recall": m.get("recall", 0),
-                "F1 Score": m.get("f1_score", 0),
-                "ROC-AUC": m.get("roc_auc", 0),
+                "Precision": m.get("precision", m.get("precision_macro", 0)),
+                "Recall": m.get("recall", m.get("recall_macro", 0)),
+                "F1 Score": m.get("f1_score", m.get("f1_macro", 0)),
+                "ROC-AUC": m.get("auc_roc", m.get("auc_roc_ovr", 0)),
             })
-        offline_df = pd.DataFrame(rows)
-        styled = offline_df.style.format({
-            "Accuracy": "{:.2%}", "Precision": "{:.2%}",
-            "Recall": "{:.2%}", "F1 Score": "{:.2%}", "ROC-AUC": "{:.4f}",
-        }).highlight_max(subset=["Accuracy", "F1 Score", "ROC-AUC"], color="#14532d")
-        st.dataframe(styled, use_container_width=True, height=250)
+        if rows:
+            offline_df = pd.DataFrame(rows)
+            styled = offline_df.style.format({
+                "Accuracy": "{:.2%}", "Precision": "{:.2%}",
+                "Recall": "{:.2%}", "F1 Score": "{:.2%}", "ROC-AUC": "{:.4f}",
+            }).highlight_max(subset=["Accuracy", "F1 Score", "ROC-AUC"], color="#14532d")
+            st.dataframe(styled, use_container_width=True, height=250)
+        else:
+            st.info("No static offline metrics available.")
     else:
         st.info("No offline metrics file found. They will appear once models are trained.")
 
@@ -294,11 +312,13 @@ def render():
         label_visibility="collapsed",
     )
 
-    features, labels = None, None
+    df = None
     dataset_name = "UNSW-NB15 built-in test split"
 
     if source == "Built-in test set":
-        features, labels = load_builtin_test()
+        df = load_builtin_test()
+        if df is None:
+            st.error("Built-in test set not found. Check path to UNSW_NB15_testing-set.parquet.")
     else:
         uploaded = st.file_uploader(
             "Upload dataset (must contain a `label` column)",
@@ -307,22 +327,21 @@ def render():
         if uploaded is not None:
             try:
                 if uploaded.name.lower().endswith(".parquet"):
-                    custom = pd.read_parquet(uploaded)
+                    df = pd.read_parquet(uploaded)
                 else:
-                    custom = pd.read_csv(uploaded)
-                if "label" not in custom.columns:
+                    df = pd.read_csv(uploaded)
+                if "label" not in df.columns:
                     st.error("Uploaded file must contain a `label` column.")
+                    df = None
                 else:
-                    processor = PacketProcessor()
-                    labels = custom["label"].values
-                    features = processor.transform(custom)
                     dataset_name = uploaded.name
-                    st.success(f"Loaded {len(custom):,} rows from {uploaded.name}.")
+                    st.success(f"Loaded {len(df):,} rows from {uploaded.name}.")
             except Exception as exc:
                 st.error(f"Failed to load: {exc}")
+                df = None
 
-    if features is not None and labels is not None:
-        total_rows = len(labels)
+    if df is not None:
+        total_rows = len(df)
         step, default_val = _progressive_step(total_rows)
 
         col_size, col_btn = st.columns([3, 1])
@@ -339,7 +358,7 @@ def render():
 
         if run_eval:
             with st.spinner(f"Evaluating on {sample_size:,} rows from {dataset_name}..."):
-                results = _run_evaluation(wrapper, features, labels, sample_size)
+                results = _run_evaluation(wrapper, df, sample_size)
                 results["dataset_name"] = dataset_name
                 st.session_state.bench_results = results
 

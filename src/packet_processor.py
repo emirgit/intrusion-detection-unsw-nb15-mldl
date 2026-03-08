@@ -3,23 +3,31 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
+from joblib import load
 
-from src.config import LABEL_COL, ATTACK_CAT_COL, CATEGORICAL_COLS
+from src.config import LABEL_COL, ATTACK_CAT_COL, CATEGORICAL_COLS, BASE_DIR
 
 
 class PacketProcessor:
-    """Preprocesses raw UNSW-NB15 records for model inference.
+    """Preprocesses raw UNSW-NB15 records for model inference."""
 
-    During the placeholder phase this simply encodes categoricals as integer
-    codes and drops non-feature columns. When real models with a fitted
-    preprocessor (e.g. ColumnTransformer / StandardScaler) are provided, the
-    ``transform`` method should delegate to that object instead.
-    """
+    def __init__(self, preprocessor_path=None) -> None:
+        self._preprocessor_data = None
+        self._ae_preprocessor_data = None
+        
+        dl_dir = BASE_DIR / "models" / "dl"
+        
+        # Load main preprocessor
+        prep_path = dl_dir / "preprocessor.joblib"
+        if prep_path.exists():
+            self._preprocessor_data = load(prep_path)
+            
+        # Load autoencoder preprocessor (if different)
+        ae_prep_path = dl_dir / "ae_preprocessor.joblib"
+        if ae_prep_path.exists():
+            self._ae_preprocessor_data = load(ae_prep_path)
 
-    def __init__(self, preprocessor=None) -> None:
-        self._preprocessor = preprocessor  # e.g. a fitted sklearn ColumnTransformer
-
-    def transform(self, raw: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, raw: pd.DataFrame, model_id: str = None) -> pd.DataFrame:
         """Return a numeric DataFrame ready for model input."""
         df = raw.copy()
 
@@ -33,17 +41,42 @@ class PacketProcessor:
             df = df.drop(columns=[ATTACK_CAT_COL])
 
         # Drop non-numeric helper columns added during simulation
-        for col in ("timestamp", "replay_index", "srcip", "dstip"):
+        for col in ("timestamp", "replay_index", "srcip", "dstip", "id"):
             if col in df.columns:
                 df = df.drop(columns=[col])
 
-        if self._preprocessor is not None:
-            return pd.DataFrame(
-                self._preprocessor.transform(df),
-                index=df.index,
-            )
+        prep_data = self._preprocessor_data
+        if model_id and "autoencoder" in model_id.lower() and self._ae_preprocessor_data:
+            prep_data = self._ae_preprocessor_data
 
-        # Placeholder encoding: categoricals -> integer codes
+        if prep_data is not None:
+            scaler = prep_data["scaler"]
+            label_encoders = prep_data["label_encoders"]
+            feature_columns = prep_data["feature_columns"]
+
+            # encode categorical features
+            for col in CATEGORICAL_COLS:
+                if col in df.columns and col in label_encoders:
+                    le = label_encoders[col]
+                    known_cats = set(le.classes_)
+                    df[col] = df[col].astype(str).apply(
+                        lambda x, _k=known_cats, _le=le: (
+                            _le.transform([x])[0] if x in _k else -1
+                        )
+                    )
+
+            df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+            for col in feature_columns:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[feature_columns]
+            
+            # transform and return
+            X = scaler.transform(df.values).astype(np.float32)
+            return pd.DataFrame(X, columns=feature_columns, index=df.index)
+
+        # Placeholder encoding fallback
         for col in CATEGORICAL_COLS:
             if col in df.columns:
                 if hasattr(df[col], "cat"):
@@ -51,7 +84,6 @@ class PacketProcessor:
                 else:
                     df[col] = pd.Categorical(df[col]).codes.astype(int)
 
-        # Ensure all columns are numeric
         df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
         return df
 
