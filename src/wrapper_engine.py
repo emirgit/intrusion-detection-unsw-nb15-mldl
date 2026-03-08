@@ -37,7 +37,7 @@ class WrapperEngine:
 
         raw_df = pd.DataFrame([raw_packet])
         meta = self.processor.extract_meta(raw_df)
-        features = self.processor.transform(raw_df)
+        features = self.processor.transform(raw_df, active_model)
         result = self.model_repo.predict(active_model, features)
 
         self._stats["packets_processed"] += 1
@@ -110,6 +110,7 @@ class WrapperEngine:
             "confidence": "low",
             "true_label": None,
             "attack_type": None,
+            "predicted_class": "unknown",
             "alert": None,
             "model_id": None,
             "raw_packet": raw_packet,
