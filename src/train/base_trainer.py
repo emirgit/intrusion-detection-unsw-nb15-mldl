@@ -189,6 +189,7 @@ class ClassifierTrainer(BaseTrainer):
         class_names: Optional[List[str]] = None,
         enable_grad_clip: bool = False,
         device: Optional[torch.device] = None,
+        class_weights: Optional[torch.Tensor] = None,
     ) -> None:
         super().__init__(model, model_name, learning_rate, epochs, patience, device)
         self._mode = mode
@@ -197,9 +198,11 @@ class ClassifierTrainer(BaseTrainer):
         self._enable_grad_clip = enable_grad_clip
 
         if mode == "binary":
-            self._criterion = nn.BCEWithLogitsLoss()
+            pos_weight = class_weights.to(self._device) if class_weights is not None else None
+            self._criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         else:
-            self._criterion = nn.CrossEntropyLoss()
+            weight = class_weights.to(self._device) if class_weights is not None else None
+            self._criterion = nn.CrossEntropyLoss(weight=weight)
 
     # ── epoch logic ─────────────────────────────────────────────────────────
 

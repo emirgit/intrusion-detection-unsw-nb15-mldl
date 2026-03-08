@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.train.data_loader import UNSWDataLoader
+from src.train.config import DL_MODELS_DIR, AE_PREPROCESSOR_PATH
 
 from src.train.cnn.binary.train import CNNBinaryTrainer
 from src.train.cnn.multi_class.train import CNNMultiClassTrainer
@@ -89,33 +90,53 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("BINARY CLASSIFICATION")
         print("=" * 60)
-        dl = UNSWDataLoader(mode="binary")
-        X_tr, y_tr, X_te, y_te = dl.load_and_preprocess()
-        dl.save_preprocessor()
 
-        for arch_name, TrainerClass, is_ae in binary_tasks:
-            if is_ae:
-                t_dl, v_dl, te_dl = dl.create_autoencoder_dataloaders(
-                    X_tr, y_tr, X_te, y_te
-                )
-            else:
+        # Separate classifier and autoencoder tasks (different scalers)
+        clf_tasks = [(a, cls) for a, cls, ae in binary_tasks if not ae]
+        ae_tasks = [(a, cls) for a, cls, ae in binary_tasks if ae]
+
+        if clf_tasks:
+            dl = UNSWDataLoader(mode="binary")
+            X_tr, y_tr, X_te, y_te = dl.load_and_preprocess()
+            dl.save_preprocessor()
+            class_weights = dl.compute_class_weights(y_tr)
+
+            for arch_name, TrainerClass in clf_tasks:
                 t_dl, v_dl, te_dl = dl.create_dataloaders(
                     X_tr, y_tr, X_te, y_te
                 )
+                trainer = TrainerClass(
+                    n_features=dl.n_features,
+                    num_classes=dl.num_classes,
+                    class_names=dl.class_names,
+                    class_weights=class_weights,
+                )
+                trainer.train(t_dl, v_dl)
+                metrics = trainer.evaluate(te_dl)
+                trainer.save_model()
+                trainer.save_metrics(metrics)
 
-            trainer = TrainerClass(
-                n_features=dl.n_features,
-                num_classes=dl.num_classes,
-                class_names=dl.class_names,
-            )
-            trainer.train(t_dl, v_dl)
+        if ae_tasks:
+            # Autoencoder uses MinMaxScaler [0,1] for stable reconstruction
+            ae_dl = UNSWDataLoader(mode="binary", use_minmax=True,
+                                   preprocessor_path=AE_PREPROCESSOR_PATH)
+            X_tr, y_tr, X_te, y_te = ae_dl.load_and_preprocess()
+            ae_dl.save_preprocessor()
 
-            if is_ae:
+            for arch_name, TrainerClass in ae_tasks:
+                t_dl, v_dl, te_dl = ae_dl.create_autoencoder_dataloaders(
+                    X_tr, y_tr, X_te, y_te
+                )
+                trainer = TrainerClass(
+                    n_features=ae_dl.n_features,
+                    num_classes=ae_dl.num_classes,
+                    class_names=ae_dl.class_names,
+                )
+                trainer.train(t_dl, v_dl)
                 trainer.compute_threshold(v_dl)
-
-            metrics = trainer.evaluate(te_dl)
-            trainer.save_model()
-            trainer.save_metrics(metrics)
+                metrics = trainer.evaluate(te_dl)
+                trainer.save_model()
+                trainer.save_metrics(metrics)
 
     if multi_tasks:
         print("\n" + "=" * 60)
@@ -124,6 +145,7 @@ def main() -> None:
         dl = UNSWDataLoader(mode="multi_class")
         X_tr, y_tr, X_te, y_te = dl.load_and_preprocess()
         dl.save_preprocessor()
+        class_weights = dl.compute_class_weights(y_tr)
 
         for arch_name, TrainerClass, _ in multi_tasks:
             t_dl, v_dl, te_dl = dl.create_dataloaders(X_tr, y_tr, X_te, y_te)
@@ -132,11 +154,17 @@ def main() -> None:
                 n_features=dl.n_features,
                 num_classes=dl.num_classes,
                 class_names=dl.class_names,
+                class_weights=class_weights,
             )
             trainer.train(t_dl, v_dl)
             metrics = trainer.evaluate(te_dl)
             trainer.save_model()
             trainer.save_metrics(metrics)
+
+    # Clean up temporary best checkpoint files
+    for best_pt in DL_MODELS_DIR.glob("*_best.pt"):
+        best_pt.unlink()
+        print(f"Removed checkpoint: {best_pt}")
 
     print(f"\nAll done. Models saved to {ROOT / 'models' / 'dl'}")
 

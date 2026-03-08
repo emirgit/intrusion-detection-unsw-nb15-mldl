@@ -14,7 +14,7 @@ from src.train.config import CNN_LSTM_LR, CNN_LSTM_EPOCHS, CNN_LSTM_PATIENCE
 
 
 class CNNLSTMMultiClassTrainer(ClassifierTrainer):
-    def __init__(self, n_features, num_classes=10, class_names=None, device=None):
+    def __init__(self, n_features, num_classes=10, class_names=None, device=None, class_weights=None):
         model = CNNLSTMClassifier(input_size=n_features, num_classes=num_classes)
         super().__init__(
             model=model,
@@ -27,6 +27,7 @@ class CNNLSTMMultiClassTrainer(ClassifierTrainer):
             class_names=class_names,
             enable_grad_clip=True,
             device=device,
+            class_weights=class_weights,
         )
 
 

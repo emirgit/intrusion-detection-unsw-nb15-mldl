@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 from typing import Tuple, Dict, List
 
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.utils.class_weight import compute_class_weight
 from joblib import dump, load
 
 import torch
@@ -26,15 +27,17 @@ from src.train.config import (
 class UNSWDataLoader:
     """Loads, preprocesses, and serves UNSW-NB15 data as PyTorch DataLoaders."""
 
-    def __init__(self, mode: str = "binary") -> None:
+    def __init__(self, mode: str = "binary", use_minmax: bool = False,
+                 preprocessor_path: str = None) -> None:
         if mode not in ("binary", "multi_class"):
             raise ValueError(f"mode must be 'binary' or 'multi_class', got '{mode}'")
         self._mode = mode
-        self._scaler = StandardScaler()
+        self._scaler = MinMaxScaler() if use_minmax else StandardScaler()
         self._label_encoders: Dict[str, LabelEncoder] = {}
         self._attack_cat_encoder = LabelEncoder()
         self._feature_columns: list = []
         self._is_fitted = False
+        self._preprocessor_path = preprocessor_path or PREPROCESSOR_PATH
 
     # ── public properties ───────────────────────────────────────────────────
 
@@ -87,6 +90,25 @@ class UNSWDataLoader:
 
         return X_train, y_train, X_test, y_test
 
+    def compute_class_weights(self, y_train: np.ndarray) -> torch.Tensor:
+        """Compute class weights for balanced training.
+
+        Binary: standard inverse-frequency pos_weight.
+        Multi-class: sqrt-dampened balanced weights to avoid overcorrecting
+        for extremely rare classes.
+        """
+        if self._mode == "binary":
+            n_neg = (y_train == 0).sum()
+            n_pos = (y_train == 1).sum()
+            pos_weight = torch.tensor([n_neg / n_pos], dtype=torch.float32)
+            return pos_weight
+        else:
+            classes = np.unique(y_train)
+            weights = compute_class_weight("balanced", classes=classes, y=y_train)
+            weights = np.sqrt(weights)
+            weights = weights / weights.min()
+            return torch.tensor(weights, dtype=torch.float32)
+
     # ── DataLoader creation ─────────────────────────────────────────────────
 
     def create_dataloaders(
@@ -138,7 +160,8 @@ class UNSWDataLoader:
     # ── persistence ─────────────────────────────────────────────────────────
 
     def save_preprocessor(self) -> None:
-        PREPROCESSOR_PATH.parent.mkdir(parents=True, exist_ok=True)
+        path = self._preprocessor_path
+        path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "scaler": self._scaler,
             "label_encoders": self._label_encoders,
@@ -149,18 +172,19 @@ class UNSWDataLoader:
         ):
             data["attack_cat_encoder"] = self._attack_cat_encoder
             data["class_names"] = list(self._attack_cat_encoder.classes_)
-        dump(data, PREPROCESSOR_PATH)
-        print(f"Preprocessor saved to {PREPROCESSOR_PATH}")
+        dump(data, path)
+        print(f"Preprocessor saved to {path}")
 
     def load_preprocessor(self) -> None:
-        data = load(PREPROCESSOR_PATH)
+        path = self._preprocessor_path
+        data = load(path)
         self._scaler = data["scaler"]
         self._label_encoders = data["label_encoders"]
         self._feature_columns = data["feature_columns"]
         if "attack_cat_encoder" in data:
             self._attack_cat_encoder = data["attack_cat_encoder"]
         self._is_fitted = True
-        print(f"Preprocessor loaded from {PREPROCESSOR_PATH}")
+        print(f"Preprocessor loaded from {path}")
 
     # ── internal ────────────────────────────────────────────────────────────
 

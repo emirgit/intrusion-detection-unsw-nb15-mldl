@@ -14,7 +14,7 @@ from src.train.config import CNN_LR, CNN_EPOCHS, CNN_PATIENCE
 
 
 class CNNMultiClassTrainer(ClassifierTrainer):
-    def __init__(self, n_features, num_classes=10, class_names=None, device=None):
+    def __init__(self, n_features, num_classes=10, class_names=None, device=None, class_weights=None):
         model = CNNClassifier(input_size=n_features, num_classes=num_classes)
         super().__init__(
             model=model,
@@ -26,6 +26,7 @@ class CNNMultiClassTrainer(ClassifierTrainer):
             patience=CNN_PATIENCE,
             class_names=class_names,
             device=device,
+            class_weights=class_weights,
         )
 
 

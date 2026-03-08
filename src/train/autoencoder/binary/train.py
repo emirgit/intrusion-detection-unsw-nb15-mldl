@@ -25,6 +25,7 @@ from src.train.autoencoder.model import Autoencoder
 from src.train.config import (
     DL_MODELS_DIR,
     AE_LR, AE_EPOCHS, AE_PATIENCE, AE_THRESHOLD_PERCENTILE,
+    AE_NOISE_FACTOR,
 )
 
 
@@ -57,8 +58,11 @@ class AutoencoderBinaryTrainer(BaseTrainer):
         total_loss = 0.0
         for X_batch, _ in loader:
             X_batch = X_batch.to(self._device)
+            # Denoising: add Gaussian noise, reconstruct clean input
+            noise = torch.randn_like(X_batch) * AE_NOISE_FACTOR
+            X_noisy = X_batch + noise
             self._optimizer.zero_grad()
-            loss = self._criterion(self._model(X_batch), X_batch)
+            loss = self._criterion(self._model(X_noisy), X_batch)
             loss.backward()
             self._optimizer.step()
             total_loss += loss.item() * len(X_batch)
@@ -85,19 +89,32 @@ class AutoencoderBinaryTrainer(BaseTrainer):
 
     def compute_threshold(self, val_loader: DataLoader) -> float:
         self._model.eval()
-        errors = []
+        all_errors, all_labels = [], []
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
                 X_batch = X_batch.to(self._device)
                 recon = self._model(X_batch)
                 mse = torch.mean((recon - X_batch) ** 2, dim=1)
-                mask = y_batch == 0
-                if mask.any():
-                    errors.append(mse[mask.to(self._device)].cpu().numpy())
+                all_errors.append(mse.cpu().numpy())
+                all_labels.append(y_batch.numpy())
 
-        all_err = np.concatenate(errors)
-        self._threshold = float(np.percentile(all_err, AE_THRESHOLD_PERCENTILE))
-        print(f"Anomaly threshold (p{AE_THRESHOLD_PERCENTILE}): {self._threshold:.6f}")
+        errors = np.concatenate(all_errors)
+        labels = np.concatenate(all_labels)
+
+        # Find threshold that maximises F1 on validation set
+        normal_errors = errors[labels == 0]
+        percentiles = np.arange(80, 100, 0.5)
+        best_f1, best_thresh = 0.0, float(np.percentile(normal_errors, AE_THRESHOLD_PERCENTILE))
+        for p in percentiles:
+            t = float(np.percentile(normal_errors, p))
+            preds = (errors > t).astype(int)
+            f1 = float(f1_score(labels, preds, zero_division=0))
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thresh = t
+
+        self._threshold = best_thresh
+        print(f"Anomaly threshold: {self._threshold:.6f} (best val F1={best_f1:.4f})")
         return self._threshold
 
     # ── evaluation ──────────────────────────────────────────────────────────

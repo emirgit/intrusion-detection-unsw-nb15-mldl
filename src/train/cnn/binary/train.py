@@ -14,7 +14,7 @@ from src.train.config import CNN_LR, CNN_EPOCHS, CNN_PATIENCE
 
 
 class CNNBinaryTrainer(ClassifierTrainer):
-    def __init__(self, n_features, num_classes=1, class_names=None, device=None):
+    def __init__(self, n_features, num_classes=1, class_names=None, device=None, class_weights=None):
         model = CNNClassifier(input_size=n_features, num_classes=1)
         super().__init__(
             model=model,
@@ -26,6 +26,7 @@ class CNNBinaryTrainer(ClassifierTrainer):
             patience=CNN_PATIENCE,
             class_names=["normal", "attack"],
             device=device,
+            class_weights=class_weights,
         )
 
 
