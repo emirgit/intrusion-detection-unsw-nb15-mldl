@@ -17,6 +17,7 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc
 
 from src.wrapper_engine import WrapperEngine
 from src.packet_processor import PacketProcessor
+from src.config import TESTING_SET_PATH, X_TEST_PATH, Y_TEST_PATH, LABEL_COL
 
 PLOTLY_LAYOUT = dict(
     template="plotly_dark",
@@ -44,9 +45,26 @@ def _progressive_step(total: int) -> tuple[int, int]:
 
 @st.cache_data
 def load_builtin_test():
-    X = pd.read_csv(X_TEST_PATH)
-    y = pd.read_csv(Y_TEST_PATH).iloc[:, 0].values
-    return X, y
+    # Prefer the raw parquet testing set if present
+    if TESTING_SET_PATH.exists():
+        df = pd.read_parquet(TESTING_SET_PATH)
+        labels = df[LABEL_COL].values if LABEL_COL in df.columns else None
+        return df, labels
+
+    # Fallback to processed CSV split (X_test + y_test)
+    if X_TEST_PATH.exists() and Y_TEST_PATH.exists():
+        X = pd.read_csv(X_TEST_PATH)
+        y = pd.read_csv(Y_TEST_PATH)
+        # Ensure indices align and append label column
+        X = X.reset_index(drop=True)
+        y = y.reset_index(drop=True)
+        if "label" in y.columns:
+            X["label"] = y["label"].values
+        else:
+            X["label"] = y.values.ravel()
+        return X, X["label"].values
+
+    return None, None
 
 
 def _run_evaluation(wrapper, features, labels, sample_size):
