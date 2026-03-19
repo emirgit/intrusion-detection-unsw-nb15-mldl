@@ -1,102 +1,37 @@
 {
-  "binary_classification": {
-    "decision_tree": {
-      "accuracy": 0.9452,
-      "precision": 0.96,
-      "recall": 0.91,
-      "f1_score": 0.93,
-      "roc_auc": 0.9714,
-      "best_params": {"min_samples_split": 10, "min_samples_leaf": 4, "max_depth": null, "criterion": "gini"}
-    },
-    "random_forest": {
-      "accuracy": 0.9432,
-      "precision": 0.96,
-      "recall": 0.90,
-      "f1_score": 0.92,
-      "roc_auc": 0.9689,
-      "best_params": {"n_estimators": 100, "min_samples_split": 2, "min_samples_leaf": 1, "max_depth": null}
-    },
-    "knn": {
-      "accuracy": 0.9253,
-      "precision": 0.95,
-      "recall": 0.87,
-      "f1_score": 0.90,
-      "roc_auc": 0.9531,
-      "best_params": {"weights": "distance", "n_neighbors": 9, "metric": "manhattan"}
-    },
-    "svm": {
-      "accuracy": 0.9084,
-      "precision": 0.92,
-      "recall": 0.85,
-      "f1_score": 0.87,
-      "roc_auc": 0.9402,
-      "best_params": {"kernel": "rbf", "C": 10}
-    },
-    "linear_regression": {
-      "accuracy": 0.9080,
-      "precision": 0.92,
-      "recall": 0.85,
-      "f1_score": 0.87,
-      "roc_auc": 0.9385,
-      "best_params": {}
-    },
-    "logistic_regression": {
-      "accuracy": 0.9026,
-      "precision": 0.91,
-      "recall": 0.84,
-      "f1_score": 0.87,
-      "roc_auc": 0.9347,
-      "best_params": {"solver": "liblinear", "C": 100}
-    }
+  "random_forest": {
+    "accuracy": 0.9234,
+    "precision": 0.9156,
+    "recall": 0.9412,
+    "f1_score": 0.9282,
+    "roc_auc": 0.9651
   },
-  "multiclass_classification": {
-    "decision_tree": {
-      "accuracy": 0.9252,
-      "precision": 0.55,
-      "recall": 0.55,
-      "f1_score": 0.53,
-      "roc_auc": 0.9418,
-      "best_params": {"min_samples_split": 5, "min_samples_leaf": 1, "max_depth": 10, "criterion": "entropy", "class_weight": null}
-    },
-    "random_forest": {
-      "accuracy": 0.9239,
-      "precision": 0.65,
-      "recall": 0.52,
-      "f1_score": 0.54,
-      "roc_auc": 0.9456,
-      "best_params": {"n_estimators": 300, "min_samples_split": 5, "min_samples_leaf": 1, "max_depth": null, "class_weight": null}
-    },
-    "knn": {
-      "accuracy": 0.8743,
-      "precision": 0.38,
-      "recall": 0.37,
-      "f1_score": 0.37,
-      "roc_auc": 0.8921,
-      "best_params": {"weights": "uniform", "n_neighbors": 9, "metric": "manhattan"}
-    },
-    "svm": {
-      "accuracy": 0.8515,
-      "precision": 0.42,
-      "recall": 0.30,
-      "f1_score": 0.29,
-      "roc_auc": 0.8734,
-      "best_params": {"kernel": "linear", "C": 10}
-    },
-    "logistic_regression": {
-      "accuracy": 0.8480,
-      "precision": 0.39,
-      "recall": 0.30,
-      "f1_score": 0.29,
-      "roc_auc": 0.8695,
-      "best_params": {"solver": "newton-cg", "C": 10}
-    },
-    "linear_regression": {
-      "accuracy": 0.6438,
-      "precision": 0.25,
-      "recall": 0.24,
-      "f1_score": 0.19,
-      "roc_auc": 0.7112,
-      "best_params": {}
-    }
+  "gradient_boosting": {
+    "accuracy": 0.9345,
+    "precision": 0.9278,
+    "recall": 0.9489,
+    "f1_score": 0.9382,
+    "roc_auc": 0.9723
+  },
+  "extra_trees": {
+    "accuracy": 0.9189,
+    "precision": 0.9102,
+    "recall": 0.9378,
+    "f1_score": 0.9238,
+    "roc_auc": 0.9598
+  },
+  "sgd_classifier": {
+    "accuracy": 0.8756,
+    "precision": 0.8634,
+    "recall": 0.9012,
+    "f1_score": 0.8819,
+    "roc_auc": 0.9234
+  },
+  "isolation_forest": {
+    "accuracy": 0.7823,
+    "precision": 0.7456,
+    "recall": 0.8234,
+    "f1_score": 0.7826,
+    "roc_auc": 0.8567
   }
 }
