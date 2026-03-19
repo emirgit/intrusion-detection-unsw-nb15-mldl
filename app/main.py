@@ -33,7 +33,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-_, col_nav, _ = st.columns([2, 1, 2])
+_, col_nav, _ = st.columns([1, 4, 1])
 with col_nav:
     page = st.radio(
         "Navigation",
