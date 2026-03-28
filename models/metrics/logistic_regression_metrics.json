@@ -1,0 +1,25 @@
+{
+  "model": "logistic_regression",
+  "binary_classification": {
+    "accuracy": 0.9026,
+    "precision": 0.91,
+    "recall": 0.84,
+    "f1_score": 0.87,
+    "roc_auc": 0.9347,
+    "best_params": {
+      "solver": "liblinear",
+      "C": 100
+    }
+  },
+  "multiclass_classification": {
+    "accuracy": 0.848,
+    "precision": 0.39,
+    "recall": 0.3,
+    "f1_score": 0.29,
+    "roc_auc": 0.8695,
+    "best_params": {
+      "solver": "newton-cg",
+      "C": 10
+    }
+  }
+}
