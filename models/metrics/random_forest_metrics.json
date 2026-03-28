@@ -1,0 +1,30 @@
+{
+  "model": "random_forest",
+  "binary_classification": {
+    "accuracy": 0.9432,
+    "precision": 0.96,
+    "recall": 0.9,
+    "f1_score": 0.92,
+    "roc_auc": 0.9689,
+    "best_params": {
+      "n_estimators": 100,
+      "min_samples_split": 2,
+      "min_samples_leaf": 1,
+      "max_depth": null
+    }
+  },
+  "multiclass_classification": {
+    "accuracy": 0.9239,
+    "precision": 0.65,
+    "recall": 0.52,
+    "f1_score": 0.54,
+    "roc_auc": 0.9456,
+    "best_params": {
+      "n_estimators": 300,
+      "min_samples_split": 5,
+      "min_samples_leaf": 1,
+      "max_depth": null,
+      "class_weight": null
+    }
+  }
+}
