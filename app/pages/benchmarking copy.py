@@ -166,8 +166,7 @@ def _render_metrics_tab(wrapper):
             "Accuracy": "{:.2%}", "Precision": "{:.2%}",
             "Recall": "{:.2%}", "F1 Score": "{:.2%}", "ROC-AUC": "{:.4f}",
         }).highlight_max(subset=["Accuracy", "F1 Score", "ROC-AUC"], color="#14532d")
-        table_height = min(600, max(250, 35 * len(offline_df) + 60))
-        st.dataframe(styled, use_container_width=True, height=table_height)
+        st.dataframe(styled, use_container_width=True, height=250)
     else:
         st.info("No offline metrics file found. They will appear once models are trained.")
 
@@ -190,8 +189,7 @@ def _render_metrics_tab(wrapper):
         ).highlight_min(
             subset=["FPR"], color="#14532d",
         )
-        table_height = min(700, max(350, 35 * len(display_df) + 60))
-        st.dataframe(styled, use_container_width=True, height=table_height)
+        st.dataframe(styled, use_container_width=True, height=350)
     else:
         st.info("Run an evaluation above to see on-demand metrics.")
 

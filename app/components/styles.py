@@ -40,6 +40,26 @@ GLOBAL_CSS = """
         border-radius: 0.75rem !important;
         color: #f8fafc !important;
     }
+
+    /* Selectbox dropdown — scrollbar for many models */
+    [data-baseweb="popover"] ul {
+        max-height: 280px !important;
+        overflow-y: auto !important;
+    }
+    [data-baseweb="popover"] ul::-webkit-scrollbar {
+        width: 6px;
+    }
+    [data-baseweb="popover"] ul::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.6);
+        border-radius: 3px;
+    }
+    [data-baseweb="popover"] ul::-webkit-scrollbar-thumb {
+        background: rgba(59, 130, 246, 0.5);
+        border-radius: 3px;
+    }
+    [data-baseweb="popover"] ul::-webkit-scrollbar-thumb:hover {
+        background: rgba(59, 130, 246, 0.8);
+    }
     
     .stSlider > div > div > div {
         background-color: rgba(59, 130, 246, 0.2) !important;

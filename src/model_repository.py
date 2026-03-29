@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 import joblib
 
+from sklearn.exceptions import InconsistentVersionWarning
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+
 from src.config import MODELS_DIR, METRICS_FILE, PLACEHOLDER_MODELS, ATTACK_CATEGORIES, BASE_DIR
 
 # Optional PyTorch imports
@@ -122,7 +125,7 @@ class ModelRepository:
                 except Exception as e:
                     warnings.warn(f"Failed to load PyTorch model {pt_file}: {e}")
 
-        # 2. Load sklearn models
+        # 2. Load sklearn models (.joblib from root, .pkl/.joblib from ml/)
         for joblib_path in MODELS_DIR.glob("*.joblib"):
             model_id = joblib_path.stem
             if "preprocessor" in model_id:
@@ -132,6 +135,26 @@ class ModelRepository:
                 self._models[model_id] = {"type": "sklearn", "model": jl_load(joblib_path)}
             except Exception:
                 pass
+
+        # 2b. Load sklearn models from models/ml/ directory (.pkl and .joblib)
+        ml_dir = MODELS_DIR / "ml"
+        if ml_dir.exists():
+            import pickle
+            for pkl_path in list(ml_dir.glob("*.pkl")) + list(ml_dir.glob("*.joblib")):
+                model_id = pkl_path.stem
+                if "preprocessor" in model_id:
+                    continue
+                if model_id in self._models:
+                    continue  # skip if already loaded
+                try:
+                    if pkl_path.suffix == ".joblib":
+                        from joblib import load as jl_load
+                        self._models[model_id] = {"type": "sklearn", "model": jl_load(pkl_path)}
+                    else:
+                        with open(pkl_path, "rb") as f:
+                            self._models[model_id] = {"type": "sklearn", "model": pickle.load(f)}
+                except Exception:
+                    pass
                 
         # 3. Fallback to placeholders if missing
         if not self._models:
