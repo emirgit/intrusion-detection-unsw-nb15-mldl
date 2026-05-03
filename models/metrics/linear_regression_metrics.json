@@ -1,19 +1,19 @@
 {
   "model": "linear_regression",
   "binary_classification": {
-    "accuracy": 0.908,
-    "precision": 0.92,
-    "recall": 0.85,
-    "f1_score": 0.87,
-    "roc_auc": 0.9385,
+    "accuracy": 0.8114,
+    "precision": 0.87,
+    "recall": 0.79,
+    "f1_score": 0.80,
+    "roc_auc": 0.9093,
     "best_params": {}
   },
   "multiclass_classification": {
-    "accuracy": 0.6438,
-    "precision": 0.25,
-    "recall": 0.24,
-    "f1_score": 0.19,
-    "roc_auc": 0.7112,
+    "accuracy": 0.6124,
+    "precision": 0.31,
+    "recall": 0.32,
+    "f1_score": 0.30,
+    "roc_auc": 0.8108,
     "best_params": {}
   }
 }

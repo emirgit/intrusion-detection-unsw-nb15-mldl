@@ -49,6 +49,8 @@ def load_builtin_test():
     if TESTING_SET_PATH.exists():
         df = pd.read_parquet(TESTING_SET_PATH)
         labels = df[LABEL_COL].values if LABEL_COL in df.columns else None
+        if labels is not None:
+            labels = pd.Series(labels).pipe(pd.to_numeric, errors="coerce").fillna(0).astype(np.int32).values
         return df, labels
 
     # Fallback to processed CSV split (X_test + y_test)
@@ -62,7 +64,8 @@ def load_builtin_test():
             X["label"] = y["label"].values
         else:
             X["label"] = y.values.ravel()
-        return X, X["label"].values
+        labels = pd.to_numeric(X["label"], errors="coerce").fillna(0).astype(np.int32).values
+        return X, labels
 
     return None, None
 
@@ -77,11 +80,19 @@ def _run_evaluation(wrapper, features, labels, sample_size):
     acc = {m: {"tp": 0, "tn": 0, "fp": 0, "fn": 0, "probs": [], "preds": []}
            for m in model_ids}
 
+    # Pre-transform the full features DataFrame for each model type so raw
+    # categorical columns (proto, service, …) are encoded before inference.
+    processed_cache: dict = {}
+    for mid in model_ids:
+        processed_cache[mid] = wrapper.processor.transform(features, mid)
+
     progress = st.progress(0)
     for i, idx in enumerate(indices):
-        row = features.iloc[idx:idx + 1]
         true = int(labels[idx])
-        all_preds = wrapper.model_repo.predict_all(row)
+        all_preds = {}
+        for mid in model_ids:
+            row = processed_cache[mid].iloc[idx:idx + 1]
+            all_preds[mid] = wrapper.model_repo.predict(mid, row)
         for mid, res in all_preds.items():
             pred = res["prediction"]
             prob = res["probability"]
@@ -100,11 +111,11 @@ def _run_evaluation(wrapper, features, labels, sample_size):
     progress.progress(1.0)
 
     # ensemble (majority voting)
-    all_pred_arrays = {m: np.array(acc[m]["preds"]) for m in model_ids}
+    all_pred_arrays = {m: np.array(acc[m]["preds"], dtype=np.int32) for m in model_ids}
     vote_sum = sum(all_pred_arrays.values())
     ensemble_preds = (vote_sum > len(model_ids) / 2).astype(int)
     ensemble_probs = np.mean([np.array(acc[m]["probs"]) for m in model_ids], axis=0)
-    sampled_labels = labels[indices]
+    sampled_labels = labels[indices].astype(np.int32)
 
     cm_e = confusion_matrix(sampled_labels, ensemble_preds, labels=[0, 1])
     tn_e, fp_e, fn_e, tp_e = cm_e.ravel() if cm_e.size == 4 else (0, 0, 0, 0)
@@ -235,7 +246,7 @@ def _render_comparison_tab():
     colors = ["#00d4ff", "#ff00ea", "#00ff88", "#fbbf24", "#f59e0b", "#8b5cf6"]
     fig_roc = go.Figure()
     for i, mid in enumerate(model_keys):
-        probs = np.array(res["acc"][mid]["probs"])
+        probs = np.array(res["acc"][mid]["probs"], dtype=np.float64)
         if len(np.unique(probs)) < 2:
             continue
         try:

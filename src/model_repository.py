@@ -83,6 +83,15 @@ class ModelRepository:
     def get_offline_metrics(self) -> Dict:
         return dict(self._offline_metrics)
 
+    def get_model_type(self, model_id: str) -> str:
+        """Return 'pytorch', 'sklearn', 'placeholder', or 'unknown'."""
+        info = self._models.get(model_id)
+        if info is None:
+            return "placeholder"
+        if isinstance(info, dict):
+            return info.get("type", "unknown")
+        return "unknown"
+
     # ── loading ───────────────────────────────────────────────────────────
 
     def _load_models(self) -> None:
@@ -204,8 +213,11 @@ class ModelRepository:
     @staticmethod
     def _real_predict(model_info: Any, model_id: str, features: pd.DataFrame) -> Dict:
         """Run a real sklearn / DL model."""
-        X = features.values if isinstance(features, pd.DataFrame) else features
-        
+        if isinstance(features, pd.DataFrame):
+            X = features.values.astype(np.float32)
+        else:
+            X = np.array(features, dtype=np.float32)
+
         if isinstance(model_info, dict) and model_info.get("type") == "pytorch":
             model = model_info["model"]
             model_class = model_info["class"]
@@ -263,10 +275,18 @@ class ModelRepository:
 
         else:
             model = model_info["model"] if isinstance(model_info, dict) else model_info
+            # Align columns when the model was trained on a different feature set
+            if isinstance(features, pd.DataFrame) and hasattr(model, "feature_names_in_"):
+                expected = list(model.feature_names_in_)
+                for col in expected:
+                    if col not in features.columns:
+                        features[col] = 0.0
+                features = features[expected]
+                X = features.values.astype(np.float32)
             if hasattr(model, "predict_proba") and "isolation" not in model_id:
                 prob = float(model.predict_proba(X)[0][1])
             elif hasattr(model, "decision_function"):
-                score = float(model.decision_function(X)[0])
+                score = float(np.array(model.decision_function(X)).ravel()[0])
                 prob = 1.0 / (1.0 + np.exp(-score))
             else:
                 pred = int(model.predict(X)[0])
