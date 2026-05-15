@@ -100,8 +100,8 @@ def _render_fusion_panel(fusion: dict) -> None:
 
     def _label_badge(label: str) -> str:
         if label == "attack":
-            return '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:2px 10px;font-weight:700;font-size:0.9rem;">⚠ ATTACK</span>'
-        return '<span style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.35);border-radius:6px;padding:2px 10px;font-weight:700;font-size:0.9rem;">✔ NORMAL</span>'
+            return '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:2px 10px;font-weight:700;font-size:0.9rem;">ATTACK</span>'
+        return '<span style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.35);border-radius:6px;padding:2px 10px;font-weight:700;font-size:0.9rem;">NORMAL</span>'
 
     with col_ml:
         st.markdown(
@@ -156,7 +156,7 @@ def _render_fusion_panel(fusion: dict) -> None:
             <div style="background:{fuse_bg};border:1px solid {fuse_border};
                         border-radius:0.75rem;padding:1.1rem 1rem;height:100%;">
               <div style="font-size:0.72rem;font-weight:700;color:{fuse_color};letter-spacing:.08em;
-                          text-transform:uppercase;margin-bottom:0.5rem;">⚡ Fusion Output</div>
+                          text-transform:uppercase;margin-bottom:0.5rem;">Fusion Output</div>
               <div style="font-size:0.82rem;color:#94a3b8;margin-bottom:0.7rem;">
                 Weighted Probability Fusion
               </div>
@@ -194,8 +194,8 @@ def render():
     if "is_running" not in st.session_state:
         st.session_state.is_running = False
 
-    if "speed" not in st.session_state:
-        st.session_state.speed = DEFAULT_SPEED
+    if "speed_slider" not in st.session_state:
+        st.session_state.speed_slider = DEFAULT_SPEED
 
     if "custom_dataset" not in st.session_state:
         st.session_state.custom_dataset = None
@@ -211,34 +211,35 @@ def render():
     wrapper: WrapperEngine = st.session_state.wrapper
 
     # ── Sidebar Configuration ─────────────────────────────────────────────────
-    st.sidebar.markdown('<h3>⚙️ Configuration</h3>', unsafe_allow_html=True)
+    st.sidebar.markdown('<h3>Configuration</h3>', unsafe_allow_html=True)
 
     # Active model selection (single model for normal mode)
     available = wrapper.model_repo.get_available_models()
     active = wrapper.model_repo.get_active_model()
     active_idx = available.index(active) if active in available else 0
 
-    st.sidebar.markdown(
-        '<label style="font-size:0.85rem; font-weight:600; color:#94a3b8; display:block; margin-bottom:0.2rem;">Model Selection</label>',
-        unsafe_allow_html=True,
-    )
-    selected = st.sidebar.selectbox(
-        "Active detection model",
-        options=available,
-        format_func=lambda m: m.replace("_", " ").title(),
-        index=active_idx,
-        key="model_select",
-        label_visibility="collapsed",
-    )
-    if selected != active:
-        wrapper.model_repo.set_active_model(selected)
-        st.rerun()
+    if not st.session_state.get("fusion_toggle", st.session_state.fusion_enabled):
+        st.sidebar.markdown(
+            '<label style="font-size:0.85rem; font-weight:600; color:#94a3b8; display:block; margin-bottom:0.2rem;">Model Selection</label>',
+            unsafe_allow_html=True,
+        )
+        selected = st.sidebar.selectbox(
+            "Active detection model",
+            options=available,
+            format_func=lambda m: m.replace("_", " ").title(),
+            index=active_idx,
+            key="model_select",
+            label_visibility="collapsed",
+        )
+        if selected != active:
+            wrapper.model_repo.set_active_model(selected)
+            st.rerun()
 
     st.sidebar.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
 
     # ── Integrated ML + DL Fusion ─────────────────────────────────────────────
     st.sidebar.markdown(
-        '<label style="font-size:0.85rem; font-weight:600; color:#94a3b8; display:block; margin-bottom:0.4rem;">⚡ Integrated ML + DL Mode</label>',
+        '<label style="font-size:0.85rem; font-weight:600; color:#94a3b8; display:block; margin-bottom:0.4rem;">Integrated ML + DL Mode</label>',
         unsafe_allow_html=True,
     )
 
@@ -307,7 +308,7 @@ def render():
     c1, c2 = st.sidebar.columns(2)
 
     with c1:
-        if st.button("▶ Start", use_container_width=True, disabled=st.session_state.is_running):
+        if st.button("Start", use_container_width=True, disabled=st.session_state.is_running):
             if st.session_state.custom_dataset is not None:
                 st.session_state.sim_engine = SimulationEngine(
                     data_frame=st.session_state.custom_dataset
@@ -319,7 +320,7 @@ def render():
             st.rerun()
 
     with c2:
-        if st.button("■ Stop", use_container_width=True, disabled=not st.session_state.is_running):
+        if st.button("Stop", use_container_width=True, disabled=not st.session_state.is_running):
             sim.stop()
             st.session_state.is_running = False
             st.rerun()
@@ -334,11 +335,10 @@ def render():
         'padding:2px 6px; border-radius:4px; color:#60a5fa;">sec/pkt</span></div>',
         unsafe_allow_html=True,
     )
-    st.session_state.speed = st.sidebar.slider(
+    st.sidebar.slider(
         "Speed",
         min_value=MIN_SPEED,
         max_value=MAX_SPEED,
-        value=st.session_state.speed,
         step=SPEED_STEP,
         key="speed_slider",
         label_visibility="collapsed",
@@ -382,7 +382,7 @@ def render():
             'color: #10b981; font-weight: bold;">'
             '<span style="display:inline-block; width:8px; height:8px; background:#10b981; '
             'border-radius:50%; box-shadow: 0 0 8px #10b981;"></span> Model Status: ACTIVE</div>'
-            f'Running live inference at {st.session_state.speed:.2f}s per packet.</div>',
+            f'Running live inference at {st.session_state.speed_slider:.2f}s per packet.</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -424,13 +424,19 @@ def render():
     m1.metric("Total Packets", f"{stats['packets_processed']:,}")
     m2.metric("Attacks Detected", f"{stats['attacks_detected']:,}")
     m3.metric("Attack Ratio", f"{stats['attack_ratio']:.3f}%")
-    m4.metric("Active Model", (stats["active_model"] or "—").replace("_", " ").title())
+    if st.session_state.fusion_enabled:
+        ml_id = st.session_state.get("fusion_ml_model", "")
+        dl_id = st.session_state.get("fusion_dl_model", "")
+        active_model_label = f"Fusion ({ml_id.replace('_',' ').title()} + {dl_id.replace('_',' ').title()})" if ml_id and dl_id else "Fusion"
+    else:
+        active_model_label = (stats["active_model"] or "—").replace("_", " ").title()
+    m4.metric("Active Model", active_model_label)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Integrated ML + DL Fusion Panel ───────────────────────────────────────
     if st.session_state.fusion_enabled:
-        st.markdown("<h3>⚡ Integrated ML + DL Analysis</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>Integrated ML + DL Analysis</h3>", unsafe_allow_html=True)
         if st.session_state.latest_fusion:
             _render_fusion_panel(st.session_state.latest_fusion)
         else:
@@ -438,7 +444,7 @@ def render():
         st.markdown("<br>", unsafe_allow_html=True)
 
     # Traffic Feed
-    st.markdown("<h3>📡 Live Traffic Feed</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>Live Traffic Feed</h3>", unsafe_allow_html=True)
     recent = list(st.session_state.packet_history)[-RECENT_PACKETS_COUNT:]
     render_traffic_feed(recent)
 
@@ -448,12 +454,12 @@ def render():
     col_alerts, col_detail = st.columns(2)
 
     with col_alerts:
-        st.markdown('<h3>🚨 Automated Alert Feed</h3>', unsafe_allow_html=True)
+        st.markdown('<h3>Automated Alert Feed</h3>', unsafe_allow_html=True)
         alerts = wrapper.alert_system.get_recent_alerts(10)
         render_alert_feed(alerts)
 
     with col_detail:
-        st.markdown('<h3>🔍 Packet Feature Inspection</h3>', unsafe_allow_html=True)
+        st.markdown('<h3>Packet Feature Inspection</h3>', unsafe_allow_html=True)
         if st.session_state.latest_attack:
             render_attack_detail(st.session_state.latest_attack)
         else:
@@ -461,5 +467,5 @@ def render():
 
     # ── auto-rerun while running ──────────────────────────────────────────────
     if st.session_state.is_running:
-        time.sleep(st.session_state.speed)
+        time.sleep(st.session_state.get("speed_slider", DEFAULT_SPEED))
         st.rerun()
