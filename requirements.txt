@@ -14,3 +14,8 @@ matplotlib
 # ML
 scikit-learn
 joblib
+imbalanced-learn
+
+# DL
+#--extra-index-url https://download.pytorch.org/whl/cu128
+torch
