@@ -18,6 +18,7 @@ from sklearn.metrics import (
 )
 
 from src.train.config import DL_MODELS_DIR, DL_METRICS_DIR, RANDOM_SEED
+from src.train.losses import FocalLoss
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -35,6 +36,7 @@ class BaseTrainer(ABC):
         epochs: int,
         patience: int,
         device: Optional[torch.device] = None,
+        weight_decay: float = 0.0,
     ) -> None:
         self._model_name = model_name
         self._epochs = epochs
@@ -44,11 +46,17 @@ class BaseTrainer(ABC):
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         self._model = model.to(self._device)
-        self._optimizer = torch.optim.Adam(
-            self._model.parameters(), lr=learning_rate
-        )
+        if weight_decay > 0:
+            self._optimizer = torch.optim.AdamW(
+                self._model.parameters(), lr=learning_rate,
+                weight_decay=weight_decay,
+            )
+        else:
+            self._optimizer = torch.optim.Adam(
+                self._model.parameters(), lr=learning_rate
+            )
         self._scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self._optimizer, mode="min", factor=0.5, patience=3
+            self._optimizer, mode="min", factor=0.5, patience=5
         )
         self._history: Dict = {"train_loss": [], "val_loss": []}
         self._best_val_loss = float("inf")
@@ -190,14 +198,20 @@ class ClassifierTrainer(BaseTrainer):
         enable_grad_clip: bool = False,
         device: Optional[torch.device] = None,
         class_weights: Optional[torch.Tensor] = None,
+        use_focal_loss: bool = True,
+        weight_decay: float = 0.0,
     ) -> None:
-        super().__init__(model, model_name, learning_rate, epochs, patience, device)
+        super().__init__(model, model_name, learning_rate, epochs, patience, device,
+                         weight_decay=weight_decay)
         self._mode = mode
         self._num_classes = num_classes
         self._class_names = class_names
         self._enable_grad_clip = enable_grad_clip
 
-        if mode == "binary":
+        if use_focal_loss:
+            weight = class_weights.to(self._device) if class_weights is not None else None
+            self._criterion = FocalLoss(alpha=1.0, gamma=2.0, weight=weight)
+        elif mode == "binary":
             pos_weight = class_weights.to(self._device) if class_weights is not None else None
             self._criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         else:

@@ -9,10 +9,14 @@ Usage
     python -m src.train.run_training --arch cnn
     python -m src.train.run_training --arch cnn_lstm
     python -m src.train.run_training --arch autoencoder
+    python -m src.train.run_training --arch ft_transformer
+    python -m src.train.run_training --arch tabnet
 
     # Specific architecture + mode
     python -m src.train.run_training --arch cnn --mode binary
     python -m src.train.run_training --arch cnn_lstm --mode multi_class
+    python -m src.train.run_training --arch ft_transformer --mode binary
+    python -m src.train.run_training --arch tabnet --mode multi_class
 
     # Each sub-module can also be invoked directly
     python -m src.train.cnn.binary.train
@@ -20,6 +24,10 @@ Usage
     python -m src.train.cnn_lstm.binary.train
     python -m src.train.cnn_lstm.multi_class.train
     python -m src.train.autoencoder.binary.train
+    python -m src.train.ft_transformer.binary.train
+    python -m src.train.ft_transformer.multi_class.train
+    python -m src.train.tabnet.binary.train
+    python -m src.train.tabnet.multi_class.train
 """
 
 import argparse
@@ -38,15 +46,23 @@ from src.train.cnn.multi_class.train import CNNMultiClassTrainer
 from src.train.cnn_lstm.binary.train import CNNLSTMBinaryTrainer
 from src.train.cnn_lstm.multi_class.train import CNNLSTMMultiClassTrainer
 from src.train.autoencoder.binary.train import AutoencoderBinaryTrainer
+from src.train.ft_transformer.binary.train import FTTransformerBinaryTrainer
+from src.train.ft_transformer.multi_class.train import FTTransformerMultiClassTrainer
+from src.train.tabnet.binary.train import TabNetBinaryTrainer
+from src.train.tabnet.multi_class.train import TabNetMultiClassTrainer
 
 # ── task registry ───────────────────────────────────────────────────────────
 # (architecture, mode) -> (TrainerClass, is_autoencoder)
 TASKS = {
-    ("cnn", "binary"):          (CNNBinaryTrainer, False),
-    ("cnn", "multi_class"):     (CNNMultiClassTrainer, False),
-    ("cnn_lstm", "binary"):     (CNNLSTMBinaryTrainer, False),
-    ("cnn_lstm", "multi_class"):(CNNLSTMMultiClassTrainer, False),
-    ("autoencoder", "binary"):  (AutoencoderBinaryTrainer, True),
+    ("cnn", "binary"):              (CNNBinaryTrainer, False),
+    ("cnn", "multi_class"):         (CNNMultiClassTrainer, False),
+    ("cnn_lstm", "binary"):         (CNNLSTMBinaryTrainer, False),
+    ("cnn_lstm", "multi_class"):    (CNNLSTMMultiClassTrainer, False),
+    ("autoencoder", "binary"):      (AutoencoderBinaryTrainer, True),
+    ("ft_transformer", "binary"):   (FTTransformerBinaryTrainer, False),
+    ("ft_transformer", "multi_class"): (FTTransformerMultiClassTrainer, False),
+    ("tabnet", "binary"):           (TabNetBinaryTrainer, False),
+    ("tabnet", "multi_class"):      (TabNetMultiClassTrainer, False),
 }
 
 
@@ -66,7 +82,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train DL models for network IDS")
     parser.add_argument(
         "--arch",
-        choices=["cnn", "cnn_lstm", "autoencoder", "all"],
+        choices=["cnn", "cnn_lstm", "autoencoder", "ft_transformer", "tabnet", "all"],
         default="all",
     )
     parser.add_argument(
@@ -74,7 +90,21 @@ def main() -> None:
         choices=["binary", "multi_class", "all"],
         default="all",
     )
+    parser.add_argument(
+        "--no-smote",
+        action="store_true",
+        help="Disable SMOTE oversampling for multi-class training",
+    )
     args = parser.parse_args()
+
+    # SMOTE strategy for multi-class: bring rare classes up to a moderate
+    # target so synthetic samples don't overwhelm the real signal.
+    smote_strategy = None if args.no_smote else {
+        "Analysis": 10000,
+        "Backdoor": 10000,
+        "Shellcode": 10000,
+        "Worms": 5000,
+    }
 
     tasks = _build_task_list(args.arch, args.mode)
 
@@ -145,10 +175,22 @@ def main() -> None:
         dl = UNSWDataLoader(mode="multi_class")
         X_tr, y_tr, X_te, y_te = dl.load_and_preprocess()
         dl.save_preprocessor()
-        class_weights = dl.compute_class_weights(y_tr)
+
+        # Chosen multi-class config: SMOTE + no class weights (Exp 8).
+        # SMOTE rebalances the training data; adding class weights on top
+        # (Exp 9, post-SMOTE weights) lowered accuracy without improving F1
+        # macro, so weights are disabled when SMOTE is active. Disable SMOTE
+        # entirely with --no-smote, which falls back to sqrt-dampened weights.
+        if smote_strategy is not None:
+            print(f"\nSMOTE enabled with strategy: {smote_strategy}")
+            class_weights = None
+        else:
+            class_weights = dl.compute_class_weights(y_tr)
 
         for arch_name, TrainerClass, _ in multi_tasks:
-            t_dl, v_dl, te_dl = dl.create_dataloaders(X_tr, y_tr, X_te, y_te)
+            t_dl, v_dl, te_dl = dl.create_dataloaders(
+                X_tr, y_tr, X_te, y_te, smote_strategy=smote_strategy
+            )
 
             trainer = TrainerClass(
                 n_features=dl.n_features,

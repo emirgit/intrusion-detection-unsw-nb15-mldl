@@ -1,9 +1,10 @@
-"""CNN + LSTM hybrid model for binary and multi-class intrusion detection."""
+"""CNN + LSTM hybrid model with Bidirectional LSTM and Attention."""
 
 from typing import Dict, List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from src.train.config import (
     CNN_LSTM_FILTERS, CNN_LSTM_KERNEL_SIZE,
@@ -11,21 +12,26 @@ from src.train.config import (
 )
 
 
+class Attention(nn.Module):
+    """Simple Self-Attention mechanism for sequence data."""
+    def __init__(self, hidden_dim: int):
+        super(Attention, self).__init__()
+        self.attention = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x: torch.Tensor):
+        # x shape: (batch_size, seq_len, hidden_dim)
+        weights = self.attention(x) # (batch_size, seq_len, 1)
+        weights = F.softmax(weights, dim=1)
+        context = torch.sum(x * weights, dim=1) # (batch_size, hidden_dim)
+        return context
+
+
 class CNNLSTMClassifier(nn.Module):
-    """Hybrid CNN-LSTM network.
+    """Hybrid CNN-LSTM network with Attention.
 
-    1D-CNN extracts local patterns from the feature vector, producing
-    a sequence of feature maps.  The LSTM then processes that sequence
-    to capture inter-region dependencies.  A fully-connected head
-    produces the final classification.
-
-    Data flow
-    ---------
-    (B, F)  ->  unsqueeze  ->  (B, 1, F)
-            ->  Conv1d block  ->  (B, C, F)     C = last filter count
-            ->  permute       ->  (B, F, C)     treat spatial positions as timesteps
-            ->  LSTM          ->  (B, hidden)   last hidden state
-            ->  FC head       ->  (B, num_classes) or (B,) for binary
+    1D-CNN extracts local patterns, produces a sequence.
+    Bidirectional LSTM processes the sequence forward and backward.
+    Attention mechanism weights the most important features.
     """
 
     def __init__(
@@ -60,19 +66,24 @@ class CNNLSTMClassifier(nn.Module):
             in_ch = out_ch
         self.conv_block = nn.Sequential(*conv_layers)
 
-        # ── LSTM sequential processor ──────────────────────────────────────
+        # ── Bi-LSTM sequential processor ──────────────────────────────────────
         self.lstm = nn.LSTM(
             input_size=self._cnn_filters[-1],
             hidden_size=lstm_hidden,
             num_layers=lstm_layers,
             batch_first=True,
             dropout=dropout if lstm_layers > 1 else 0.0,
+            bidirectional=True # Capture context from both directions
         )
+
+        # ── Attention Layer ──────────────────────────────────────────────────
+        self.attention = Attention(lstm_hidden * 2) # * 2 because of Bi-LSTM
 
         # ── Classifier head ────────────────────────────────────────────────
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(lstm_hidden, 64),
+            nn.Linear(lstm_hidden * 2, 64),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(64, num_classes),
@@ -82,9 +93,12 @@ class CNNLSTMClassifier(nn.Module):
         x = x.unsqueeze(1)                         # (B, 1, F)
         x = self.conv_block(x)                     # (B, C, F)
         x = x.permute(0, 2, 1)                     # (B, F, C) — timesteps=F
-        lstm_out, _ = self.lstm(x)                  # (B, F, H)
-        last = lstm_out[:, -1, :]                   # (B, H)
-        out = self.classifier(last)                 # (B, num_classes)
+        lstm_out, _ = self.lstm(x)                  # (B, F, 2*H)
+        
+        # Apply Attention instead of just taking the last state
+        context = self.attention(lstm_out)          # (B, 2*H)
+        
+        out = self.classifier(context)              # (B, num_classes)
         if self._num_classes == 1:
             return out.squeeze(-1)                  # (B,)
         return out

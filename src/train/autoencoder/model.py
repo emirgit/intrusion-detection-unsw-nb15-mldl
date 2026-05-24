@@ -1,4 +1,4 @@
-"""Symmetric autoencoder for anomaly-based intrusion detection."""
+"""Symmetric autoencoder with Residual Blocks for anomaly detection."""
 
 from typing import Dict, List
 
@@ -8,10 +8,36 @@ import torch.nn as nn
 from src.train.config import AE_ENCODER_DIMS, AE_DROPOUT
 
 
-class Autoencoder(nn.Module):
-    """Symmetric autoencoder — trained on normal traffic only.
+class ResidualDense(nn.Module):
+    """A Residual Dense block for tabular data."""
+    def __init__(self, in_dim: int, out_dim: int, dropout: float):
+        super().__init__()
+        self.fc = nn.Linear(in_dim, out_dim)
+        self.bn = nn.BatchNorm1d(out_dim)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+        
+        self.shortcut = nn.Sequential()
+        if in_dim != out_dim:
+            self.shortcut = nn.Sequential(
+                nn.Linear(in_dim, out_dim),
+                nn.BatchNorm1d(out_dim)
+            )
 
-    High reconstruction error signals an anomaly (attack).
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.shortcut(x)
+        out = self.fc(x)
+        out = self.bn(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out += residual
+        return out
+
+
+class Autoencoder(nn.Module):
+    """Symmetric autoencoder with Residual Blocks.
+
+    Trained on normal traffic only to detect anomalies via high reconstruction error.
     """
 
     def __init__(
@@ -29,12 +55,7 @@ class Autoencoder(nn.Module):
         enc = []
         in_dim = input_size
         for out_dim in self._encoder_dims:
-            enc.extend([
-                nn.Linear(in_dim, out_dim),
-                nn.BatchNorm1d(out_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-            ])
+            enc.append(ResidualDense(in_dim, out_dim, dropout))
             in_dim = out_dim
         self.encoder = nn.Sequential(*enc)
 
@@ -43,14 +64,9 @@ class Autoencoder(nn.Module):
         dec = []
         in_dim = self._encoder_dims[-1]
         for i, out_dim in enumerate(dec_dims):
-            dec.append(nn.Linear(in_dim, out_dim))
-            if i < len(dec_dims) - 1:
-                dec.extend([
-                    nn.BatchNorm1d(out_dim),
-                    nn.ReLU(),
-                    nn.Dropout(dropout),
-                ])
+            dec.append(ResidualDense(in_dim, out_dim, dropout))
             in_dim = out_dim
+            
         self.decoder = nn.Sequential(*dec)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

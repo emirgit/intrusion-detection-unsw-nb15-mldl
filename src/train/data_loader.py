@@ -10,6 +10,7 @@ import pandas as pd
 from typing import Tuple, Dict, List
 
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
 from joblib import dump, load
 
@@ -33,10 +34,12 @@ class UNSWDataLoader:
             raise ValueError(f"mode must be 'binary' or 'multi_class', got '{mode}'")
         self._mode = mode
         self._scaler = MinMaxScaler() if use_minmax else StandardScaler()
-        self._label_encoders: Dict[str, LabelEncoder] = {}
         self._attack_cat_encoder = LabelEncoder()
+        self._onehot_columns: list = []
+        self._selected_features: list = []
         self._feature_columns: list = []
         self._is_fitted = False
+        self._last_train_labels = None
         self._preprocessor_path = preprocessor_path or PREPROCESSOR_PATH
 
     # ── public properties ───────────────────────────────────────────────────
@@ -44,6 +47,12 @@ class UNSWDataLoader:
     @property
     def n_features(self) -> int:
         return len(self._feature_columns)
+
+    @property
+    def last_train_labels(self) -> np.ndarray:
+        """Training labels from the most recent create_dataloaders call
+        (post-SMOTE if oversampling was applied)."""
+        return self._last_train_labels
 
     @property
     def num_classes(self) -> int:
@@ -118,18 +127,86 @@ class UNSWDataLoader:
         X_test: np.ndarray,
         y_test: np.ndarray,
         batch_size: int = BATCH_SIZE,
+        smote_strategy=None,
     ) -> Tuple[DataLoader, DataLoader, DataLoader]:
-        """Create train / validation / test DataLoaders."""
+        """Create train / validation / test DataLoaders.
+
+        If `smote_strategy` is provided and mode is multi_class, SMOTE is
+        applied to the training split only (val/test stay untouched).
+        `smote_strategy` accepts the same forms as imblearn's
+        `sampling_strategy` argument. Class names (strings) are also accepted
+        and converted to encoded integer labels.
+        """
         train_idx, val_idx = self._split_indices(len(X_train))
 
         X_tr, y_tr = X_train[train_idx], y_train[train_idx]
         X_val, y_val = X_train[val_idx], y_train[val_idx]
+
+        if smote_strategy is not None and self._mode == "multi_class":
+            X_tr, y_tr = self.apply_smote(X_tr, y_tr, sampling_strategy=smote_strategy)
+
+        # Expose the actual training labels the model will see (post-SMOTE if
+        # applied) so class weights can be computed from the real distribution.
+        self._last_train_labels = y_tr
 
         return (
             self._make_loader(X_tr, y_tr, batch_size, shuffle=True),
             self._make_loader(X_val, y_val, batch_size, shuffle=False),
             self._make_loader(X_test, y_test, batch_size, shuffle=False),
         )
+
+    def apply_smote(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        sampling_strategy="auto",
+        k_neighbors: int = 5,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Apply SMOTE oversampling. Multi-class only.
+
+        Accepts dict keys as class names (strings) or encoded integer labels.
+        Prints class distribution before and after for transparency.
+        """
+        from imblearn.over_sampling import SMOTE
+
+        if self._mode != "multi_class":
+            raise ValueError("SMOTE is only supported for multi_class mode.")
+
+        if isinstance(sampling_strategy, dict):
+            classes = list(self._attack_cat_encoder.classes_)
+            converted = {}
+            for key, target in sampling_strategy.items():
+                if isinstance(key, str):
+                    if key not in classes:
+                        raise ValueError(f"Unknown class name '{key}' in smote_strategy")
+                    idx = classes.index(key)
+                else:
+                    idx = int(key)
+                current = int((y == idx).sum())
+                if current < target:
+                    converted[idx] = int(target)
+            sampling_strategy = converted
+
+        print("Class distribution before SMOTE:")
+        self._print_class_counts(y)
+
+        smote = SMOTE(
+            sampling_strategy=sampling_strategy,
+            random_state=RANDOM_SEED,
+            k_neighbors=k_neighbors,
+        )
+        X_res, y_res = smote.fit_resample(X, y)
+
+        print("Class distribution after SMOTE:")
+        self._print_class_counts(y_res)
+        print(f"Total samples: {len(y)} -> {len(y_res)}")
+
+        return X_res.astype(np.float32), y_res.astype(np.int64)
+
+    def _print_class_counts(self, y: np.ndarray) -> None:
+        for idx, name in enumerate(self._attack_cat_encoder.classes_):
+            count = int((y == idx).sum())
+            print(f"  {name:20s} {count:>7d}")
 
     def create_autoencoder_dataloaders(
         self,
@@ -164,7 +241,8 @@ class UNSWDataLoader:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "scaler": self._scaler,
-            "label_encoders": self._label_encoders,
+            "onehot_columns": self._onehot_columns,
+            "selected_features": self._selected_features,
             "feature_columns": self._feature_columns,
         }
         if self._mode == "multi_class" and hasattr(
@@ -179,7 +257,8 @@ class UNSWDataLoader:
         path = self._preprocessor_path
         data = load(path)
         self._scaler = data["scaler"]
-        self._label_encoders = data["label_encoders"]
+        self._onehot_columns = data.get("onehot_columns", [])
+        self._selected_features = data.get("selected_features", [])
         self._feature_columns = data["feature_columns"]
         if "attack_cat_encoder" in data:
             self._attack_cat_encoder = data["attack_cat_encoder"]
@@ -227,24 +306,29 @@ class UNSWDataLoader:
         ]
         df = df.drop(columns=cols_to_drop)
 
-        # ── encode categorical features ─────────────────────────────────────
+        # ── one-hot encode categorical features ─────────────────────────────
         for col in CATEGORICAL_COLS:
             if col not in df.columns:
                 continue
-            if fit:
-                le = LabelEncoder()
-                df[col] = le.fit_transform(df[col].astype(str))
-                self._label_encoders[col] = le
-            else:
-                le = self._label_encoders[col]
-                known_cats = set(le.classes_)
-                df[col] = df[col].astype(str).apply(
-                    lambda x, _k=known_cats, _le=le: (
-                        _le.transform([x])[0] if x in _k else -1
-                    )
-                )
+            df[col] = df[col].astype(str)
+        df = pd.get_dummies(df, columns=[c for c in CATEGORICAL_COLS if c in df.columns])
+
+        if fit:
+            self._onehot_columns = list(df.columns)
+        else:
+            # Add missing columns as 0, drop extra columns
+            for col in self._onehot_columns:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[self._onehot_columns]
 
         df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+        # ── feature selection (RF importance + correlation hybrid) ──────
+        if fit:
+            self._selected_features = self._select_features(df, y)
+            print(f"Feature selection: {len(df.columns)} -> {len(self._selected_features)} features")
+        df = df[self._selected_features]
 
         if fit:
             self._feature_columns = list(df.columns)
@@ -258,6 +342,29 @@ class UNSWDataLoader:
             X = self._scaler.transform(df.values).astype(np.float32)
 
         return X, y
+
+    @staticmethod
+    def _select_features(df: pd.DataFrame, y: np.ndarray, top_k: int = 50,
+                         corr_threshold: float = 0.1) -> list:
+        """Select features using RF importance + correlation hybrid (same as ML pipeline)."""
+        # Step 1: Correlation with target
+        df_with_target = df.copy()
+        df_with_target["_target"] = y
+        corr = abs(df_with_target.corr()["_target"]).drop("_target")
+        corr_features = set(corr[corr > corr_threshold].index)
+
+        # Step 2: RF feature importance (top_k)
+        rf = RandomForestClassifier(
+            n_estimators=100, random_state=RANDOM_SEED, n_jobs=-1
+        )
+        y_cls = y.astype(int) if y.dtype == np.float32 else y
+        rf.fit(df.values, y_cls)
+        importances = pd.Series(rf.feature_importances_, index=df.columns)
+        rf_features = set(importances.nlargest(top_k).index)
+
+        # Step 3: Union
+        selected = sorted(list(corr_features | rf_features))
+        return selected
 
     @staticmethod
     def _split_indices(n: int) -> Tuple[np.ndarray, np.ndarray]:
